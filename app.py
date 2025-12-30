@@ -55,7 +55,23 @@ def save_daily_log(intake=0, burned=0):
 # =========================
 # LOGIN / SIGNUP
 # =========================
+
 if not st.session_state.logged_in:
+    # 🏋️ PROJECT TITLE
+    st.markdown(
+        """
+        <h1 style="text-align:center; color:#ff4b4b;">
+        🏋️ Fitness Calorie Tracker & Weight Prediction System
+        </h1>
+        <h4 style="text-align:center; color:gray;">
+        Machine Learning Project
+        </h4>
+        <hr>
+        """,
+        unsafe_allow_html=True
+    )
+
+
     st.title("🔐 Login / Signup")
 
     option = st.radio("Choose Option", ["Login", "Signup"])
@@ -124,6 +140,19 @@ else:
         ["🏠 Home", "🍎 Calorie Intake", "🏃 Calories Burned", "📊 Progress", "⚖️ Weight Goal"]
     )
     st.sidebar.button("🚪 Logout", on_click=lambda: st.session_state.clear())
+    
+    # =========================
+    # DEVELOPER INFO
+    # =========================
+    st.sidebar.markdown(
+    """
+    ---
+    **Developed by:**  
+    22-NTU-CS-1227 (Umer Moazzam)  
+    22-NTU-CS-1229 (Wasif Ali)  
+    22-NTU-CS-1191 (Bilal Afzal)
+    """
+)
 
     # =========================
     # HOME
@@ -231,3 +260,6 @@ else:
                 st.info("Tip: Walk daily, avoid sugar, eat vegetables & lean protein.")
             else:
                 st.info("You are already at your target weight ✅")
+
+
+  

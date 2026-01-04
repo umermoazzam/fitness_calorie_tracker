@@ -2,6 +2,8 @@ import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 from datetime import date
+from model.weight_model import predict_weight
+
 
 # =========================
 # PAGE CONFIG
@@ -34,23 +36,33 @@ def save_user(username, password):
 # =========================
 # DAILY LOG
 # =========================
-def save_daily_log(intake=0, burned=0):
+def save_daily_log(intake=0, burned=0, weight=None, steps=0, distance=0.0, water_intake=0.0, sleep_hours=0.0, notes=""):
     today = date.today().isoformat()
     try:
         df = pd.read_csv("data/daily_log.csv")
     except:
-        df = pd.DataFrame(columns=["date", "intake", "burned"])
+        df = pd.DataFrame(columns=["date", "weight", "intake", "burned", "steps", "distance", "water_intake", "sleep_hours", "notes"])
 
     if today in df["date"].values:
+        if weight is not None:
+            df.loc[df["date"] == today, "weight"] = weight
         df.loc[df["date"] == today, "intake"] += intake
         df.loc[df["date"] == today, "burned"] += burned
+        df.loc[df["date"] == today, "steps"] += steps
+        df.loc[df["date"] == today, "distance"] += distance
+        df.loc[df["date"] == today, "water_intake"] += water_intake
+        df.loc[df["date"] == today, "sleep_hours"] += sleep_hours
+        if notes:
+            df.loc[df["date"] == today, "notes"] = notes
     else:
         df = pd.concat([
             df,
-            pd.DataFrame([[today, intake, burned]], columns=df.columns)
+            pd.DataFrame([[today, weight, intake, burned, steps, distance, water_intake, sleep_hours, notes]], 
+                         columns=df.columns)
         ])
 
     df.to_csv("data/daily_log.csv", index=False)
+
 
 # =========================
 # LOGIN / SIGNUP
@@ -137,7 +149,7 @@ else:
     st.sidebar.title("📌 Dashboard")
     menu = st.sidebar.radio(
         "Navigation",
-        ["🏠 Home", "🍎 Calorie Intake", "🏃 Calories Burned", "📊 Progress", "⚖️ Weight Goal"]
+        ["🏠 Home", "🍎 Calorie Intake", "🏃 Calories Burned", "⚖️ Weight Goal", "📊 Progress"]
     )
     st.sidebar.button("🚪 Logout", on_click=lambda: st.session_state.clear())
     
@@ -159,28 +171,72 @@ else:
     # =========================
     if menu == "🏠 Home":
         st.title("🏋️ Fitness Calorie Tracker")
-        col1, col2 = st.columns(2)
-        col1.metric("Target Burn", "500 kcal/day")
-        col2.metric("Target Intake", "2200 kcal/day")
+
+        try:
+            df = pd.read_csv("data/daily_log.csv")
+        except:
+            df = pd.DataFrame(columns=["date", "weight", "intake", "burned", "steps", "distance", "water_intake", "sleep_hours", "notes"])
+
+        today = date.today().isoformat()
+        today_data = df[df["date"] == today]
+
+        intake = today_data["intake"].sum() if not today_data.empty else 0
+        burned = today_data["burned"].sum() if not today_data.empty else 0
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("🔥 Calories Burned Today", f"{burned:.0f} kcal", delta=f"{burned-500:.0f} kcal")
+        col2.metric("🍽️ Calories Intake Today", f"{intake:.0f} kcal", delta=f"{intake-2200:.0f} kcal")
+        col3.metric("⚖️ Current Weight", f"{today_data['weight'].values[0]:.1f} kg" if not today_data.empty and today_data['weight'].values[0] else "N/A")
+
 
     # =========================
     # CALORIE INTAKE
     # =========================
     elif menu == "🍎 Calorie Intake":
-        st.header("🍎 Food Intake Analyzer")
+        st.header(" Food Intake Analyzer")
 
-        food_name = st.text_input("Food Name")
-        quantity = st.number_input("Quantity (grams)", min_value=1, value=100)
+        food_input = st.text_input("Enter Food Names (comma separated)")
+        quantities_input = st.text_input("Enter Quantities (grams, comma separated, same order)")
 
-        if st.button("Predict Calories"):
-            result = food_df[food_df["Food"].str.lower() == food_name.lower().strip()]
-            if not result.empty:
-                calories_100g = result.iloc[0]["Calories"]
-                total = (calories_100g / 100) * quantity
-                st.success(f"🔥 Estimated Calories: {total:.2f} kcal")
-                save_daily_log(intake=total)
+        target_calories = st.number_input("Target Calories (optional)", min_value=0.0, value=0.0)
+
+        if st.button("Calculate Intake"):
+            if not food_input.strip():
+                st.error("Please enter at least one food ❌")
             else:
-                st.error("Food not found ❌")
+                food_list = [f.strip() for f in food_input.split(",")]
+                if quantities_input.strip():
+                    quantity_list = [float(q.strip()) for q in quantities_input.split(",")]
+                    if len(quantity_list) != len(food_list):
+                        st.error("Number of quantities must match number of foods ❌")
+                        st.stop()
+                else:
+                    quantity_list = [100] * len(food_list)  # default 100g if no quantity
+
+                total_calories = 0
+                st.subheader("🍴 Food Calories")
+                for food, qty in zip(food_list, quantity_list):
+                    result = food_df[food_df["Food"].str.lower() == food.lower()]
+                    if not result.empty:
+                        calories_per_100g = result.iloc[0]["Calories"]
+                        calories = (calories_per_100g / 100) * qty
+                        total_calories += calories
+                        st.write(f"{food} ({qty} g): {calories:.2f} kcal")
+                        save_daily_log(intake=calories)
+                    else:
+                        st.warning(f"{food} not found in database ❌")
+
+                st.success(f"🔥 Total Calories: {total_calories:.2f} kcal")
+
+                if target_calories > 0:
+                    st.subheader("📌 Quantities for Target Calories")
+                    for food in food_list:
+                        result = food_df[food_df["Food"].str.lower() == food.lower()]
+                        if not result.empty:
+                            calories_per_100g = result.iloc[0]["Calories"]
+                            suggested_quantity = (target_calories / calories_per_100g) * 100
+                            st.info(f"{food}: approx {suggested_quantity:.2f} g needed to reach {target_calories} kcal")
+
 
     # =========================
     # CALORIES BURNED
@@ -189,14 +245,61 @@ else:
         st.header("🏃 Walking Calorie Estimator")
 
         weight = st.number_input("Weight (kg)", min_value=1, value=70)
-        distance = st.number_input("Distance (km)", min_value=0.1, step=0.1, value=1.0)
+        distance = st.number_input("Distance (km, optional)", min_value=0.0, step=0.1, value=0.0)
+        target_calories = st.number_input("Target Calories to Burn (optional)", min_value=0.0, value=0.0)
 
         if st.button("Calculate"):
-            calories = weight * distance * 0.9
-            st.success(f"✅ Calories Burned: {calories:.2f} kcal")
-            save_daily_log(burned=calories)
+            # Calculate calories from distance
+            if distance > 0:
+                calories = weight * distance * 0.9
+                st.success(f"✅ Calories Burned for {distance} km: {calories:.2f} kcal")
+                save_daily_log(burned=calories)
 
+            # Calculate distance required for target calories
+            if target_calories > 0:
+                if weight > 0:
+                    required_distance = target_calories / (weight * 0.9)
+                    st.info(f"🏃 Distance required to burn {target_calories:.2f} kcal: {required_distance:.2f} km")
+                else:
+                    st.error("Weight must be greater than 0 to calculate required distance.")
+
+            # If both provided, show both results
+            if distance > 0 and target_calories > 0:
+                st.write("✅ Both calculations completed!")
+
+
+  
     # =========================
+    # WEIGHT GOAL
+    # =========================
+    elif menu == "⚖️ Weight Goal":
+        st.header("⚖️ Weight Gain / Loss Planner")
+
+        current_weight = st.number_input("Current Weight (kg)", min_value=1, value=70)
+        target_weight = st.number_input("Target Weight (kg)", min_value=1, value=72)
+        days = st.number_input("Time Period (days)", min_value=1, value=30)
+
+        if st.button("Calculate Plan"):
+            diff = target_weight - current_weight
+            total_calories = diff * 7700
+            daily_calories = total_calories / days
+
+            if diff > 0:
+                st.success(f"You need a **daily surplus of {daily_calories:.0f} kcal** to gain {diff:.1f} kg.")
+                st.subheader("🍽️ Recommended High-Calorie Foods")
+                st.table(food_df.sort_values("Calories", ascending=False).head(5))
+                st.info("Tip: Eat frequently, add nuts, milk, bananas, peanut butter.")
+            elif diff < 0:
+                st.warning(f"You need a **daily deficit of {abs(daily_calories):.0f} kcal** to lose {abs(diff):.1f} kg.")
+                st.subheader("🥗 Recommended Low-Calorie Foods")
+                st.table(food_df.sort_values("Calories").head(5))
+                st.info("Tip: Walk daily, avoid sugar, eat vegetables & lean protein.")
+            else:
+                st.info("You are already at your target weight ✅")
+
+
+
+                  # =========================
     # PROGRESS
     # =========================
     elif menu == "📊 Progress":
@@ -233,33 +336,6 @@ else:
         st.subheader("📅 Last 7 Days")
         st.bar_chart(weekly.set_index("date")[["intake", "burned"]])
 
-    # =========================
-    # WEIGHT GOAL
-    # =========================
-    elif menu == "⚖️ Weight Goal":
-        st.header("⚖️ Weight Gain / Loss Planner")
-
-        current_weight = st.number_input("Current Weight (kg)", min_value=1, value=70)
-        target_weight = st.number_input("Target Weight (kg)", min_value=1, value=72)
-        days = st.number_input("Time Period (days)", min_value=1, value=30)
-
-        if st.button("Calculate Plan"):
-            diff = target_weight - current_weight
-            total_calories = diff * 7700
-            daily_calories = total_calories / days
-
-            if diff > 0:
-                st.success(f"You need a **daily surplus of {daily_calories:.0f} kcal** to gain {diff:.1f} kg.")
-                st.subheader("🍽️ Recommended High-Calorie Foods")
-                st.table(food_df.sort_values("Calories", ascending=False).head(5))
-                st.info("Tip: Eat frequently, add nuts, milk, bananas, peanut butter.")
-            elif diff < 0:
-                st.warning(f"You need a **daily deficit of {abs(daily_calories):.0f} kcal** to lose {abs(diff):.1f} kg.")
-                st.subheader("🥗 Recommended Low-Calorie Foods")
-                st.table(food_df.sort_values("Calories").head(5))
-                st.info("Tip: Walk daily, avoid sugar, eat vegetables & lean protein.")
-            else:
-                st.info("You are already at your target weight ✅")
 
 
   

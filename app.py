@@ -280,6 +280,9 @@ else:
         days = st.number_input("Time Period (days)", min_value=1, value=30)
 
         if st.button("Calculate Plan"):
+            # Save current weight to daily log
+            save_daily_log(weight=current_weight)
+            
             diff = target_weight - current_weight
             total_calories = diff * 7700
             daily_calories = total_calories / days
